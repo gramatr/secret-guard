@@ -69,7 +69,7 @@ PR history for the "why" on that scoping choice.
    `~/.claude/settings.json` or project `.claude/settings.json`) — see
    `adapters/claude-code/settings-snippet.json` for the exact shape.
    Point `command` at the absolute path to `adapters/claude-code/hook.sh`.
-3. Requires `gitleaks`, `jq`, and `python3` on PATH.
+3. Requires `gitleaks` and `jq` on PATH.
 
 ### Verifying against a live payload
 
