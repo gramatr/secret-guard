@@ -7,7 +7,13 @@ on:
 
 jobs:
   test:
-    runs-on: arc-runner-gramatr
+    # arc-runner-gramatr (the org's self-hosted ARC pool) refuses jobs from
+    # public repos by default — a GitHub security measure, not a flake (see
+    # soc2-coordination secret-leak-to-zammad PR history for the full story).
+    # This repo is intentionally public (grāmatr plugin, same as
+    # claude-plugin/codex-plugin/gemini-extension), so it stays on
+    # GitHub-hosted ubuntu-latest, which public repos get free.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
