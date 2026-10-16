@@ -1,0 +1,3 @@
+Here is some normal log output.
+AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP
+more normal output below.

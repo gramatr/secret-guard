@@ -1,0 +1,5 @@
+some output before
+-----BEGIN RSA PRIVATE KEY-----
+MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAuGbXWiK3dQTyCbX5
+-----END RSA PRIVATE KEY-----
+some output after

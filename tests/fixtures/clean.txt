@@ -1,0 +1,3 @@
+Just a normal bash output with no secrets.
+PATH=/usr/bin:/bin
+Build succeeded in 3.2s.

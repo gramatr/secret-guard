@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|Grep|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/secret-guard/adapters/claude-code/hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
