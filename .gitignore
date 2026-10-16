@@ -1,0 +1,2 @@
+# grāmatr runtime/session state — tokens and ephemeral session data, never commit.
+.gramatr/

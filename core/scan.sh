@@ -9,6 +9,11 @@
 # On stderr: one line per finding ("REDACTED rule=<id> line=<n>"), for
 # adapters that want to log/count without touching stdout.
 #
+# If SECRET_GUARD_FINDINGS_JSON is set, writes a JSON array of findings
+# there (RuleID/StartLine/Fingerprint — no Secret/Match values) for
+# adapters that want to report findings via core/report.sh without
+# re-scanning the text themselves.
+#
 # Requires: gitleaks (>=8.x), jq, python3.
 
 set -uo pipefail
@@ -32,11 +37,11 @@ if [ ! -s "$REPORT_FILE" ] || [ "$(cat "$REPORT_FILE")" = "null" ]; then
   exit 0
 fi
 
-python3 - "$INPUT_FILE" "$REPORT_FILE" <<'PYEOF'
+python3 - "$INPUT_FILE" "$REPORT_FILE" "${SECRET_GUARD_FINDINGS_JSON:-}" <<'PYEOF'
 import json
 import sys
 
-input_path, report_path = sys.argv[1], sys.argv[2]
+input_path, report_path, findings_out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 with open(input_path, "r", errors="replace") as f:
     text = f.read()
@@ -52,6 +57,18 @@ for finding in findings:
     rule = finding.get("RuleID", "unknown")
     line = finding.get("StartLine", "?")
     print(f"REDACTED rule={rule} line={line}", file=sys.stderr)
+
+if findings_out_path:
+    safe_findings = [
+        {
+            "RuleID": f.get("RuleID", "unknown"),
+            "StartLine": f.get("StartLine"),
+            "Fingerprint": f.get("Fingerprint", ""),
+        }
+        for f in findings
+    ]
+    with open(findings_out_path, "w") as f:
+        json.dump(safe_findings, f)
 
 for secret in secrets:
     if secret:
