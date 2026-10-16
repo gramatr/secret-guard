@@ -13,11 +13,16 @@
 # Claude Code session yet — see README "Verifying against a live payload"
 # before trusting this in production. Set SECRET_GUARD_DEBUG=1 to log the
 # raw payload for inspection.
+#
+# On a finding, also reports it as SOC2 compliance evidence via
+# core/report.sh (fail-open — see that file; a missing/unreachable
+# Kestra webhook never blocks the redaction above).
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCAN="$SCRIPT_DIR/../../core/scan.sh"
+REPORT="$SCRIPT_DIR/../../core/report.sh"
 
 RAW="$(cat)"
 
@@ -40,12 +45,21 @@ if [ -z "$TEXT" ]; then
   exit 0
 fi
 
-REDACTED="$(printf '%s' "$TEXT" | "$SCAN")"
+FINDINGS_FILE="$(mktemp)"
+trap 'rm -f "$FINDINGS_FILE"' EXIT
+
+REDACTED="$(printf '%s' "$TEXT" | SECRET_GUARD_FINDINGS_JSON="$FINDINGS_FILE" "$SCAN")"
 
 if [ "$REDACTED" = "$TEXT" ]; then
   # No findings — leave the original tool output untouched.
   exit 0
 fi
+
+TOOL_NAME="$(printf '%s' "$RAW" | jq -r '.tool_name // "unknown"' 2>/dev/null)"
+SECRET_GUARD_SOURCE="claude-code-live-session" \
+SECRET_GUARD_FILE="Claude Code ${TOOL_NAME} tool output" \
+SECRET_GUARD_CONTEXT="tool=${TOOL_NAME}" \
+  "$REPORT" < "$FINDINGS_FILE"
 
 jq -n --arg out "$REDACTED" \
   '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $out}}'

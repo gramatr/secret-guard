@@ -17,7 +17,8 @@ history).
 
 ```
 core/                   — engine, no knowledge of any specific agent tool
-  scan.sh                 stdin text in -> same text out, secrets redacted
+  scan.sh                  stdin text in -> same text out, secrets redacted
+  report.sh                reports findings as SOC2 compliance evidence (see below)
 adapters/
   claude-code/           — Claude Code PostToolUse hook glue
     hook.sh
@@ -26,6 +27,7 @@ adapters/
 tests/
   test_core.sh
   test_claude_code_adapter.sh
+  test_report.sh
   fixtures/
 ```
 
@@ -36,6 +38,30 @@ back in whatever shape that tool expects. Adding support for a new
 agent tool (OpenCode, Codex, Hermes, ...) means writing a new adapter,
 not touching the core.
 
+## Compliance reporting (SOC2 evidence)
+
+Every redaction is also a *finding that something needed to be hidden*,
+which for a SOC2 program is its own auditable event. `core/scan.sh` can
+emit a findings JSON (rule id, line, fingerprint — never the secret
+value) via `SECRET_GUARD_FINDINGS_JSON`, and `core/report.sh` posts that
+to a Kestra webhook (`secret-leak-to-zammad` in the `gramatr/soc2-coordination`
+repo — see its `kestra/flows/secret-leak-to-zammad.yaml` and
+`contracts/zammad.yaml`), which files a Zammad ticket and writes an
+immutable ClickHouse audit-events row.
+
+Required env for the report to actually file a ticket:
+`KESTRA_PUBLIC_URL`, `KESTRA_WEBHOOK_KEY_SECRET_LEAK`. Without them,
+`report.sh` fails open — it appends to a local JSONL log
+(`SECRET_GUARD_LOCAL_LOG`, default `/tmp/secret-guard-events.jsonl`)
+instead of silently doing nothing, so a missing credential is visible
+without ever blocking the redaction that already happened.
+
+This is deliberately generic: any adapter (or the CI gitleaks gate in
+soc2-coordination) can call `report.sh` the same way. v1 attribution is
+shallow by design — which control caught it (ci/pr/live-session) plus
+file/rule, not who-or-what introduced the secret. See soc2-coordination's
+PR history for the "why" on that scoping choice.
+
 ## Claude Code adapter (v1, current)
 
 1. Copy or clone this repo somewhere stable.
@@ -43,7 +69,7 @@ not touching the core.
    `~/.claude/settings.json` or project `.claude/settings.json`) — see
    `adapters/claude-code/settings-snippet.json` for the exact shape.
    Point `command` at the absolute path to `adapters/claude-code/hook.sh`.
-3. Requires `gitleaks`, `jq`, and `python3` on PATH.
+3. Requires `gitleaks` and `jq` on PATH.
 
 ### Verifying against a live payload
 
@@ -93,10 +119,15 @@ most setups won't want by default.
 ## Roadmap
 
 - [ ] Confirm Claude Code PostToolUse payload shape against a live session
+- [ ] Create the `kestra-webhook-key-secret-leak` BWS secret + `secret-guard@n90.co`
+      Zammad customer (prerequisites for `secret-leak-to-zammad`, not yet done)
 - [ ] OpenCode adapter
 - [ ] Codex adapter
 - [ ] Hermes adapter
 - [ ] Optional custom gitleaks ruleset (org-specific patterns)
+- [ ] Deeper attribution (human commit author vs. `Co-Authored-By: grāmatr`
+      trailer; Write/Edit = AI drafted vs. Bash/Read = surfaced pre-existing) —
+      deferred from v1, see soc2-coordination PR history
 - [ ] Package as a grāmatr plugin component so it ships by default for
       grāmatr users, independent of which underlying agent tool they're on
 
