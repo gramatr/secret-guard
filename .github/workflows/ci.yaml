@@ -33,3 +33,6 @@ jobs:
 
       - name: Run report.sh smoke tests
         run: bash tests/test_report.sh
+
+      - name: Run HTTP daemon smoke tests
+        run: bash tests/test_daemon.sh

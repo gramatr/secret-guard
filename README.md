@@ -62,6 +62,27 @@ shallow by design — which control caught it (ci/pr/live-session) plus
 file/rule, not who-or-what introduced the secret. See soc2-coordination's
 PR history for the "why" on that scoping choice.
 
+## Optional daemon mode (for a shared multi-guard stack)
+
+`daemon/server.py` + `docker/Dockerfile` wrap `core/scan.sh` as an HTTP
+service (`POST /scan`, `GET /health`) — for deployments running
+secret-guard alongside `pii-guard`/`injection-guard` as one Docker
+Compose stack with a consistent interface across all three (see
+[gramatr/guards-stack](https://github.com/gramatr/guards-stack)). This
+is **not** the primary interface: gitleaks has no model-load cost to
+amortize, so a direct `core/scan.sh` call from an adapter (see below)
+remains the simplest integration when secret-guard runs alone. Use the
+daemon only when something else in the deployment already needs
+`pii-guard-daemon`/`injection-guard-daemon` running as services and you
+want one consistent shape.
+
+```
+docker build -t secret-guard -f docker/Dockerfile .
+docker run -p 127.0.0.1:8732:8732 secret-guard
+curl -X POST http://localhost:8732/scan -H 'Content-Type: application/json' \
+  -d '{"text": "some text that might contain a secret"}'
+```
+
 ## Claude Code adapter (v1, current)
 
 1. Copy or clone this repo somewhere stable.
@@ -136,6 +157,9 @@ most setups won't want by default.
       deferred from v1, see soc2-coordination PR history
 - [ ] Package as a grāmatr plugin component so it ships by default for
       grāmatr users, independent of which underlying agent tool they're on
+- [x] Optional HTTP daemon mode for a shared multi-guard Docker stack
+      (`daemon/server.py`, `docker/Dockerfile`) — see "Optional daemon
+      mode" above and [gramatr/guards-stack](https://github.com/gramatr/guards-stack)
 
 ## License
 
