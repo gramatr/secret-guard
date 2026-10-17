@@ -71,21 +71,26 @@ PR history for the "why" on that scoping choice.
    Point `command` at the absolute path to `adapters/claude-code/hook.sh`.
 3. Requires `gitleaks` and `jq` on PATH.
 
-### Verifying against a live payload
+### Bash only — found the hard way, not a design choice
 
-The adapter's field-extraction logic (`tool_response.stdout` /
-`.output` / `.content` / ...) was written against the documented
-PostToolUse hook shape, **not yet confirmed against a live Claude Code
-session**. Before relying on this:
+Earlier versions of this adapter matched `Bash|Read|Grep|WebFetch` and
+returned `updatedToolOutput` as a bare string. Both were wrong, found
+while building [gramatr/claude-plugin-guards](https://github.com/gramatr/claude-plugin-guards):
+Claude Code's `updatedToolOutput` schema is **per tool**, and only
+Bash's shape is confirmed from the docs — a structured object
+(`{"stdout", "stderr", "interrupted", "isImage"}`), not a string. A
+value that doesn't match the tool's schema is silently ignored and the
+original output is used — so this adapter would have been a no-op on
+every tool call, the whole time, if it had ever been wired into a real
+`settings.json`. Fixed: Bash only, correct shape. Read/Grep/WebFetch's
+exact shapes aren't confirmed, so rather than guess and risk the same
+silent no-op, those tool calls pass through unguarded for now.
 
-```
-SECRET_GUARD_DEBUG=1 SECRET_GUARD_DEBUG_LOG=/tmp/secret-guard-debug.jsonl \
-  <run Claude Code, trigger a Bash/Read/Grep/WebFetch call>
-```
-
-then inspect `/tmp/secret-guard-debug.jsonl` and confirm
-`adapters/claude-code/hook.sh`'s `jq` extraction actually finds the
-tool's output text. Adjust the field list if the real payload differs.
+If you're also running injection-guard and/or pii-guard, prefer
+`claude-plugin-guards`' combined hook over wiring this adapter
+independently alongside theirs on the same matcher — Claude Code runs
+same-event hooks in parallel with an undefined resolution order when
+more than one returns `updatedToolOutput` for the same call.
 
 ## Fail-open vs. fail-closed
 
@@ -100,6 +105,7 @@ most setups won't want by default.
 
 ## Known limitations
 
+- **Only Bash tool calls are guarded** — see "Bash only" above.
 - **Covers tool output, not model-generated text.** If the agent reads
   a secret in one tool call and later *types it out itself* in a later
   response, this does not catch that — there is no documented hook in

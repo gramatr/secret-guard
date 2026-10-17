@@ -1,2 +1,5 @@
 # grāmatr runtime/session state — tokens and ephemeral session data, never commit.
 .gramatr/
+# injection-guard was cloned as a subdirectory of this repo during this
+# session's work — it's a separate repo, never meant to be nested here.
+/injection-guard/
