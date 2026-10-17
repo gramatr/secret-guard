@@ -1,65 +1,66 @@
 #!/usr/bin/env bash
 # adapters/claude-code/hook.sh — PostToolUse hook glue for Claude Code.
 #
-# Claude Code invokes this with the hook payload JSON on stdin and expects
-# JSON on stdout (or nothing, to pass the original tool output through
-# unchanged). See core/scan.sh for the actual detection/redaction logic —
-# this file is only responsible for (a) pulling the right text field out
-# of Claude Code's specific payload shape and (b) putting the redacted
-# result back in the shape Claude Code expects.
+# BASH-ONLY, STRUCTURED OUTPUT — found the hard way, while building
+# gramatr/claude-plugin-guards: Claude Code's updatedToolOutput schema
+# is PER TOOL, and only Bash's shape is confirmed from the docs — a
+# structured object, not a bare string:
+#   {"stdout": "...", "stderr": "...", "interrupted": false, "isImage": false}
+# "A value that doesn't match the tool's output schema is ignored and
+# the original output is used." This script used to return a bare
+# string and matched Read|Grep|WebFetch too — that means it would have
+# silently no-op'd on every tool if ever wired into a real settings.json,
+# since Bash needed the object shape and the others' shapes were never
+# confirmed. Fixed: Bash only, correct shape, exits 0 (safe pass-through)
+# for anything else. See README "Known limitations."
 #
-# CAVEAT: the exact field holding tool output (tool_response.stdout vs
-# .output vs .content, etc.) has not been confirmed against a live
-# Claude Code session yet — see README "Verifying against a live payload"
-# before trusting this in production. Set SECRET_GUARD_DEBUG=1 to log the
-# raw payload for inspection.
+# Also found at the same time: if multiple PostToolUse hooks are matched
+# on the same tool call, Claude Code's own docs say they run in parallel
+# with an undefined resolution order for updatedToolOutput. If you're
+# using secret-guard alongside injection-guard/pii-guard, prefer
+# gramatr/claude-plugin-guards' combined-hook.sh (runs all three in
+# sequence, one deterministic result) over wiring this hook plus theirs
+# independently on the same matcher.
 #
-# On a finding, also reports it as SOC2 compliance evidence via
-# core/report.sh (fail-open — see that file; a missing/unreachable
-# Kestra webhook never blocks the redaction above).
+# Fail-open: if core/scan.sh or gitleaks isn't reachable, passes tool
+# output through unchanged and logs a warning.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCAN="$SCRIPT_DIR/../../core/scan.sh"
-REPORT="$SCRIPT_DIR/../../core/report.sh"
 
 RAW="$(cat)"
 
-if [ "${SECRET_GUARD_DEBUG:-0}" = "1" ]; then
-  echo "$RAW" >> "${SECRET_GUARD_DEBUG_LOG:-/tmp/secret-guard-debug.jsonl}"
-fi
-
-TEXT="$(printf '%s' "$RAW" | jq -r '
-  .tool_response as $r
-  | if $r == null then ""
-    elif ($r | type) == "string" then $r
-    elif $r.stdout != null then $r.stdout
-    elif $r.output != null then $r.output
-    elif $r.content != null then ($r.content | if type == "string" then . else tojson end)
-    else ($r | tojson)
-    end
-' 2>/dev/null)"
-
-if [ -z "$TEXT" ]; then
+TOOL_NAME="$(printf '%s' "$RAW" | jq -r '.tool_name // ""' 2>/dev/null)"
+if [ "$TOOL_NAME" != "Bash" ]; then
   exit 0
 fi
 
-FINDINGS_FILE="$(mktemp)"
-trap 'rm -f "$FINDINGS_FILE"' EXIT
+STDOUT="$(printf '%s' "$RAW" | jq -r '.tool_response.stdout // ""' 2>/dev/null)"
+STDERR="$(printf '%s' "$RAW" | jq -r '.tool_response.stderr // ""' 2>/dev/null)"
+INTERRUPTED="$(printf '%s' "$RAW" | jq -r '.tool_response.interrupted // false' 2>/dev/null)"
+IS_IMAGE="$(printf '%s' "$RAW" | jq -r '.tool_response.isImage // false' 2>/dev/null)"
 
-REDACTED="$(printf '%s' "$TEXT" | SECRET_GUARD_FINDINGS_JSON="$FINDINGS_FILE" "$SCAN")"
+if [ -z "$STDOUT" ]; then
+  exit 0
+fi
 
-if [ "$REDACTED" = "$TEXT" ]; then
+if [ ! -x "$SCAN" ]; then
+  echo "secret-guard hook: core/scan.sh not found/executable, passing through (fail-open)" >&2
+  exit 0
+fi
+
+REDACTED="$(printf '%s' "$STDOUT" | "$SCAN")"
+
+if [ "$REDACTED" = "$STDOUT" ]; then
   # No findings — leave the original tool output untouched.
   exit 0
 fi
 
-TOOL_NAME="$(printf '%s' "$RAW" | jq -r '.tool_name // "unknown"' 2>/dev/null)"
-SECRET_GUARD_SOURCE="claude-code-live-session" \
-SECRET_GUARD_FILE="Claude Code ${TOOL_NAME} tool output" \
-SECRET_GUARD_CONTEXT="tool=${TOOL_NAME}" \
-  "$REPORT" < "$FINDINGS_FILE"
-
-jq -n --arg out "$REDACTED" \
-  '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $out}}'
+jq -n \
+  --arg stdout "$REDACTED" \
+  --arg stderr "$STDERR" \
+  --argjson interrupted "$INTERRUPTED" \
+  --argjson isImage "$IS_IMAGE" \
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: {stdout: $stdout, stderr: $stderr, interrupted: $interrupted, isImage: $isImage}}}'
